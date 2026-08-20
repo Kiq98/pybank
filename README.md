@@ -37,11 +37,11 @@ cada etapa no log.
 **Planilha gerada** — uma aba por banco, com fórmulas, formato `R$`, datas
 padronizadas, largura de coluna automática e a conferência na coluna lateral:
 
-![Planilha de saída gerada pelo PyBank](assets/Exemplo_saida.png)
+![Planilha de saída gerada pelo PyBank](Assets/Exemplo_saida.png)
 
 **Log da execução** — identificação do banco, extração, conciliação e tempo total. Repare no `WARNING`: um PDF **intruso** que não é fatura (`documento_aleatorio.pdf`) é reconhecido e **ignorado sem interromper** o processamento dos outros — nada derruba o lote:
 
-![Log de execução do PyBank](assets/Exemplo_log.png)
+![Log de execução do PyBank](Assets/Exemplo_log.png)
 
 ---
 
