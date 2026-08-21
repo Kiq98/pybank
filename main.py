@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
 from pathlib import Path
+from collections import Counter
 # ================================================
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
@@ -380,6 +381,22 @@ def data_emissao_pdf(arquivo_fatura):
             return int(data_criacao_pdf[2:6]), int(data_criacao_pdf[6:8])
         agora = datetime.now()
         return agora.year, agora.month
+
+def data_lote_emissao_pdf(pdfs_validos):
+    datas = []
+    for pdf in pdfs_validos:
+        emissao = data_emissao_pdf(pdf)
+        datas.append((pdf, emissao))
+    return datas
+
+def mes_saida(datas):
+    emissoes = [emissao for pdf, emissao in datas]
+    contador = Counter(emissoes).most_common(1)
+    vencedor = contador[0][0]
+    for pdf, emissao in datas:
+        if emissao != vencedor:
+            logging.warning(f'{pdf.name}: emissão {emissao} diverge do lote {vencedor}')
+    return vencedor
 
 # Monta a data da compra corrigindo o ano na virada: compra de mês posterior à emissão é do ano anterior
 def montar_data(dia, mes_compra, ano_emissao, mes_emissao):
