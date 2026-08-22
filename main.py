@@ -43,8 +43,6 @@ pasta_faturas = Path('Faturas_teste') # pasta onde se encontrará todos os arqui
 
 Path('Saidas').mkdir(exist_ok=True) # pasta de outputs (xlsx) para o usuário 
 
-caminho_saida = Path('Saidas') / 'Faturas_teste.xlsx' # Definindo o caminho certo para onde o xlsx será guardado
-
 def identificador(arquivo):
     with pdfplumber.open(arquivo) as pdf:
         texto = pdf.pages[0].extract_text() or ''
@@ -382,6 +380,7 @@ def data_emissao_pdf(arquivo_fatura):
         agora = datetime.now()
         return agora.year, agora.month
 
+# Lê a emissão de cada PDF já filtrado como válido; devolve uma lista de pares (pdf, (ano, mes))
 def data_lote_emissao_pdf(pdfs_validos):
     datas = []
     for pdf in pdfs_validos:
@@ -389,6 +388,7 @@ def data_lote_emissao_pdf(pdfs_validos):
         datas.append((pdf, emissao))
     return datas
 
+# Decide qual (ano, mes) nomeia a subpasta do lote (a emissão mais comum); loga quem diverge da maioria
 def mes_saida(datas):
     emissoes = [emissao for pdf, emissao in datas]
     contador = Counter(emissoes).most_common(1)
@@ -611,13 +611,24 @@ def processar(parser, arquivo, nome):
 faturas = [] # Junta (df, feedback, nome) de cada banco — uma tupla por aba do workbook
 
 # Identificação dos arquivos, leitura dos parsers, criação de df, exportação e manipulação de arquivo xlsx
+pdfs_validos = []  # PDFs reconhecidos pelo identificador — usados depois pra decidir a subpasta
 for caminho_pdf in pasta_faturas.glob('*.pdf'):
     parser, nome = identificador(caminho_pdf)
     if parser is None:
         logging.warning(f'Banco não reconhecido: {caminho_pdf.name}')
         continue
+    pdfs_validos.append(caminho_pdf)
     df, feedback = processar(parser, caminho_pdf, nome)
     faturas.append((df, feedback, nome))
+
+# Define em qual subpasta (ano-mês da emissão) esse lote vai ser salvo
+datas = data_lote_emissao_pdf(pdfs_validos)
+ano, mes = mes_saida(datas)
+
+# Cria a subpasta antes do exportar_xlsx, que precisa dela pronta pra criar o arquivo
+subpastas = Path('Saidas') / f'{ano}-{mes:02d}'
+subpastas.mkdir(parents=True, exist_ok=True)
+caminho_saida = subpastas / 'Faturas_teste.xlsx'
 
 # Exportar
 exportar_xlsx(faturas, caminho_saida)
