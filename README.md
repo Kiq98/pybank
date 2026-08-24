@@ -1,9 +1,10 @@
 # PyBank
 
 Lê faturas de cartão de crédito em **PDF** de bancos brasileiros, extrai as
-transações e gera uma planilha **Excel formatada** (`Saidas/Faturas.xlsx`), com
-uma aba por banco. Detecta o banco automaticamente, concilia o valor extraído
-contra o total real da fatura e registra tudo em log.
+transações e gera uma planilha **Excel formatada** por mês de emissão
+(`Saidas/{ano}-{mes}/Faturas.xlsx`), com uma aba por banco. Detecta o banco
+automaticamente, concilia o valor extraído contra o total real da fatura e
+registra tudo em log.
 
 ---
 
@@ -21,6 +22,11 @@ contra o total real da fatura e registra tudo em log.
   `DD/MM/YYYY`, fontes e largura de coluna ajustada automaticamente.
 - **Tolerante a falhas** — um PDF que não é fatura é ignorado com aviso; uma
   fatura sem total é processada mesmo assim e sinalizada. Nada interrompe o lote.
+- **Organização automática por mês** — PDFs de meses de emissão diferentes num
+  mesmo lote não se misturam: cada mês gera sua própria planilha em
+  `Saidas/{ano}-{mes}/`, e os PDFs de origem são movidos para
+  `Faturas/{ano}-{mes}/` depois de processados, mantendo a pasta de entrada
+  organizada e evitando reprocessar o que já foi lido numa próxima execução.
 - **Log completo** — histórico e tempo de execução em `Logs/Faturas.log`.
 
 ## Bancos suportados
@@ -62,21 +68,27 @@ pip install pdfplumber pandas openpyxl
    python main.py
    ```
 
-3. A planilha sai em `Saidas/Faturas.xlsx` (uma aba por banco) e o histórico em
-   `Logs/Faturas.log`.
+3. A planilha sai em `Saidas/{ano}-{mes}/Faturas.xlsx` (uma aba por banco, um
+   arquivo por mês de emissão presente no lote) e o histórico em
+   `Logs/Faturas.log`. Os PDFs processados são movidos de `Faturas/` para
+   `Faturas/{ano}-{mes}/`.
 
-As pastas `Saidas/` e `Logs/` são criadas automaticamente se não existirem.
+As pastas `Saidas/`, `Logs/` e as subpastas de `{ano}-{mes}` são criadas
+automaticamente se não existirem.
 
 ## Estrutura de pastas
 
 ```
 PyBank/
-├── main.py            # todo o pipeline
-├── Faturas/           # entrada: PDFs das faturas (você coloca aqui)
-├── Faturas_teste/     # faturas fictícias de exemplo (uma por banco)
-├── assets/            # prints usados no README
-├── Saidas/            # saída: Faturas.xlsx (gerado)
-└── Logs/              # saída: Faturas.log (gerado)
+├── main.py                # todo o pipeline
+├── Faturas/               # entrada: PDFs das faturas (você coloca aqui)
+│   └── {ano}-{mes}/       # PDFs já processados, organizados por emissão (gerado)
+├── Faturas_teste/         # faturas fictícias de exemplo (uma por banco)
+├── assets/                # prints usados no README
+├── Saidas/
+│   └── {ano}-{mes}/
+│       └── Faturas.xlsx   # saída: uma planilha por mês de emissão (gerado)
+└── Logs/                  # saída: Faturas.log (gerado)
 ```
 
 ---
@@ -95,28 +107,38 @@ certinho (`Tudo certo` no log), incluindo os encargos do Nubank e do Sicredi.
 
 ## Como funciona
 
-Pipeline em uma passada por PDF:
+Pipeline em duas etapas: uma passada por PDF, depois uma passada por mês de
+emissão presente no lote.
 
 ```
-Faturas/*.pdf
+Faturas/*.pdf (cada PDF)
      │
      ▼
-identificador   →  qual banco? (âncora única no texto da 1ª página)
+identificador     →  qual banco? (âncora única no texto da 1ª página)
      │
      ▼
-parser do banco →  extrai transações, encargos e o total real
-     │              (ano vindo do metadado do PDF + correção dez/jan)
+parser do banco   →  extrai transações, encargos e o total real
+     │                (ano vindo do metadado do PDF + correção dez/jan)
      ▼
-preparar_df     →  DataFrame padronizado, valores convertidos pra número
+preparar_df       →  DataFrame padronizado, valores convertidos pra número
      │
      ▼
-conferir        →  soma extraída × total real  →  aviso na célula K1 da aba
+conferir          →  soma extraída × total real  →  aviso na célula K1 da aba
      │
      ▼
-exportar_xlsx   →  grava cada banco numa aba de Saidas/Faturas.xlsx
+agrupamento       →  (df, feedback, banco, caminho_pdf) entra no grupo do
+                      (ano, mês) de emissão daquele PDF
+
+── uma vez por grupo (ano, mês) ──
+
+exportar_xlsx     →  grava cada banco do grupo numa aba de
+                      Saidas/{ano}-{mes}/Faturas.xlsx
      │
      ▼
-manipular_xlsx  →  fórmulas, fontes, formato R$/data, autofit das colunas
+manipular_xlsx    →  fórmulas, fontes, formato R$/data, autofit das colunas
+     │
+     ▼
+organização       →  move os PDFs do grupo para Faturas/{ano}-{mes}/
 ```
 
 ### Colunas da planilha
@@ -145,6 +167,9 @@ manipular_xlsx  →  fórmulas, fontes, formato R$/data, autofit das colunas
   pra você conferir, não é necessariamente um erro.
 - **Faturas contêm dados pessoais** (CPF, transações). Não versione a pasta
   `Faturas/` nem a saída ao subir para um repositório público.
+- **PDFs com nome repetido se sobrescrevem.** Ao mover os arquivos de entrada
+  processados para `Faturas/{ano}-{mes}/`, um PDF com o mesmo nome já existente
+  nessa subpasta é substituído sem aviso.
 
 ## Diagnóstico
 
