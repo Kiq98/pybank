@@ -153,7 +153,6 @@ def nubank(arquivo):
 
     if total_fatura is not None:
         total_fatura = para_float(total_fatura)
-
     return dados_extraidos, total_fatura
 
 # Inter
