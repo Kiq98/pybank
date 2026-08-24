@@ -8,7 +8,6 @@ import logging
 from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
 from pathlib import Path
-from collections import Counter
 # ================================================
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
@@ -39,7 +38,7 @@ meses = {
 }
 
 
-pasta_faturas = Path('Faturas_teste') # pasta onde se encontrará todos os arquivos de faturas a serem lidos
+pasta_faturas = Path('Faturas') # pasta onde se encontrará todos os arquivos de faturas a serem lidos
 
 Path('Saidas').mkdir(exist_ok=True) # pasta de outputs (xlsx) para o usuário 
 
@@ -380,24 +379,6 @@ def data_emissao_pdf(arquivo_fatura):
         agora = datetime.now()
         return agora.year, agora.month
 
-# Lê a emissão de cada PDF já filtrado como válido; devolve uma lista de pares (pdf, (ano, mes))
-def data_lote_emissao_pdf(pdfs_validos):
-    datas = []
-    for pdf in pdfs_validos:
-        emissao = data_emissao_pdf(pdf)
-        datas.append((pdf, emissao))
-    return datas
-
-# Decide qual (ano, mes) nomeia a subpasta do lote (a emissão mais comum); loga quem diverge da maioria
-def mes_saida(datas):
-    emissoes = [emissao for pdf, emissao in datas]
-    contador = Counter(emissoes).most_common(1)
-    vencedor = contador[0][0]
-    for pdf, emissao in datas:
-        if emissao != vencedor:
-            logging.warning(f'{pdf.name}: emissão {emissao} diverge do lote {vencedor}')
-    return vencedor
-
 # Monta a data da compra corrigindo o ano na virada: compra de mês posterior à emissão é do ano anterior
 def montar_data(dia, mes_compra, ano_emissao, mes_emissao):
     if int(mes_compra) > int(mes_emissao):
@@ -608,33 +589,27 @@ def processar(parser, arquivo, nome):
 
 # =================== CHAMADAS ====================
 
-faturas = [] # Junta (df, feedback, nome) de cada banco — uma tupla por aba do workbook
+faturas = {} # Agrupa (df, feedback, nome) por (ano, mes) da emissão — uma lista de tuplas por grupo
 
-# Identificação dos arquivos, leitura dos parsers, criação de df, exportação e manipulação de arquivo xlsx
-pdfs_validos = []  # PDFs reconhecidos pelo identificador — usados depois pra decidir a subpasta
+# Identifica o banco de cada PDF, processa a fatura e agrupa o resultado pela emissão dele
 for caminho_pdf in pasta_faturas.glob('*.pdf'):
     parser, nome = identificador(caminho_pdf)
     if parser is None:
         logging.warning(f'Banco não reconhecido: {caminho_pdf.name}')
         continue
-    pdfs_validos.append(caminho_pdf)
+    data_emissao = data_emissao_pdf(caminho_pdf)
     df, feedback = processar(parser, caminho_pdf, nome)
-    faturas.append((df, feedback, nome))
+    faturas.setdefault(data_emissao, []).append((df, feedback, nome))
 
-# Define em qual subpasta (ano-mês da emissão) esse lote vai ser salvo
-datas = data_lote_emissao_pdf(pdfs_validos)
-ano, mes = mes_saida(datas)
-
-# Cria a subpasta antes do exportar_xlsx, que precisa dela pronta pra criar o arquivo
-subpastas = Path('Saidas') / f'{ano}-{mes:02d}'
-subpastas.mkdir(parents=True, exist_ok=True)
-caminho_saida = subpastas / 'Faturas_teste.xlsx'
-
-# Exportar
-exportar_xlsx(faturas, caminho_saida)
-
-# Formatar
-manipular_xlsx(caminho_saida)
+# Uma subpasta e um Faturas.xlsx por grupo de emissão — a subpasta precisa existir antes do exportar_xlsx, que cria o arquivo
+for (ano, mes), lista_grupo in faturas.items():
+    subpastas = Path('Saidas') / f'{ano}-{mes:02d}'
+    subpastas.mkdir(parents=True, exist_ok=True)
+    caminho_saida = subpastas / 'Faturas.xlsx'
+    # Exportar
+    exportar_xlsx(lista_grupo, caminho_saida)
+    # Formatar
+    manipular_xlsx(caminho_saida)
 
 # Fecha o cronômetro e loga o tempo total — referência pra comparar quando for otimizando
 fim = perf_counter()
