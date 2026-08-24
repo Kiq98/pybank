@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
 from pathlib import Path
+import shutil
 # ================================================
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
@@ -220,7 +221,6 @@ def inter(arquivo):
     total_fatura = extrair_valores(texto, 'VALOR DO DOCUMENTO')
     if total_fatura is not None:
         total_fatura = para_float(total_fatura)
-
     return dados_extraidos, total_fatura
 
 # Sicredi
@@ -306,7 +306,6 @@ def sicredi(arquivo):
     total_fatura = extrair_valores(texto, 'Total desta Fatura')
     if total_fatura is not None:
         total_fatura = para_float(total_fatura)
-
     return dados_extraidos, total_fatura
 
 # Banco do Brasil
@@ -364,7 +363,6 @@ def banco_do_brasil(arquivo):
     total_fatura = extrair_valores(texto, 'Total da Fatura')
     if total_fatura is not None:
         total_fatura = para_float(total_fatura)
-
     return dados_extraidos, total_fatura
 
 # ======================================= HELPERS =======================================
@@ -467,7 +465,7 @@ def exportar_xlsx(fatura, workbook):
     try:
         logging.info('Exportando arquivo .xlsx')
         with pd.ExcelWriter(workbook) as writer:
-            for df, feedback, sheet in fatura:
+            for df, feedback, sheet, _ in fatura:
                 df.to_excel(writer, sheet_name=sheet, index=False)
                 writer.sheets[sheet]['K1'] = feedback
         logging.info('Exportação concluída.')
@@ -588,7 +586,7 @@ def processar(parser, arquivo, nome):
 
 # =================== CHAMADAS ====================
 
-faturas = {} # Agrupa (df, feedback, nome) por (ano, mes) da emissão — uma lista de tuplas por grupo
+faturas = {} # Agrupa (df, feedback, nome, caminho_pdf) por (ano, mes) da emissão — uma lista de tuplas por grupo
 
 # Identifica o banco de cada PDF, processa a fatura e agrupa o resultado pela emissão dele
 for caminho_pdf in pasta_faturas.glob('*.pdf'):
@@ -598,17 +596,24 @@ for caminho_pdf in pasta_faturas.glob('*.pdf'):
         continue
     data_emissao = data_emissao_pdf(caminho_pdf)
     df, feedback = processar(parser, caminho_pdf, nome)
-    faturas.setdefault(data_emissao, []).append((df, feedback, nome))
+    faturas.setdefault(data_emissao, []).append((df, feedback, nome, caminho_pdf))
 
 # Uma subpasta e um Faturas.xlsx por grupo de emissão — a subpasta precisa existir antes do exportar_xlsx, que cria o arquivo
 for (ano, mes), lista_grupo in faturas.items():
-    subpastas = Path('Saidas') / f'{ano}-{mes:02d}'
-    subpastas.mkdir(parents=True, exist_ok=True)
-    caminho_saida = subpastas / 'Faturas.xlsx'
+    subpastas_saidas = Path('Saidas') / f'{ano}-{mes:02d}'
+    subpastas_saidas.mkdir(parents=True, exist_ok=True)
+    caminho_saida = subpastas_saidas / 'Faturas.xlsx'
     # Exportar
     exportar_xlsx(lista_grupo, caminho_saida)
     # Formatar
     manipular_xlsx(caminho_saida)
+
+    # Move os PDFs de entrada só depois de exportar e formatar: se algo falhar antes,
+    # o PDF original continua em Faturas/ pra rodar de novo manualmente
+    subpastas_entradas = Path('Faturas') / f'{ano}-{mes:02d}'
+    subpastas_entradas.mkdir(parents=True, exist_ok=True)
+    for df, feedback, nome, caminho_pdf in lista_grupo:
+        shutil.move(caminho_pdf, subpastas_entradas / caminho_pdf.name)
 
 # Fecha o cronômetro e loga o tempo total — referência pra comparar quando for otimizando
 fim = perf_counter()
