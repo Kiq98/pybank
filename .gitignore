@@ -2,3 +2,6 @@
 Faturas_teste/
 Saidas/
 Logs/
+
+venv/
+.env
