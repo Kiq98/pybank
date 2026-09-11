@@ -465,7 +465,7 @@ def exportar_xlsx(fatura, workbook):
     try:
         logging.info('Exportando arquivo .xlsx')
         with pd.ExcelWriter(workbook) as writer:
-            for df, feedback, sheet, _ in fatura:
+            for df, feedback, total, sheet, _ in fatura:
                 df.to_excel(writer, sheet_name=sheet, index=False)
                 writer.sheets[sheet]['K1'] = feedback
         logging.info('Exportação concluída.')
@@ -582,7 +582,7 @@ def processar(parser, arquivo, nome):
     soma = df['Valor'].sum()
     feedback = conferir(soma, total, nome)
 
-    return df, feedback
+    return df, feedback, total
 
 # =================== CHAMADAS ====================
 
@@ -595,8 +595,8 @@ for caminho_pdf in pasta_faturas.glob('*.pdf'):
         logging.warning(f'Banco não reconhecido: {caminho_pdf.name}')
         continue
     data_emissao = data_emissao_pdf(caminho_pdf)
-    df, feedback = processar(parser, caminho_pdf, nome)
-    faturas.setdefault(data_emissao, []).append((df, feedback, nome, caminho_pdf))
+    df, feedback, total = processar(parser, caminho_pdf, nome)
+    faturas.setdefault(data_emissao, []).append((df, feedback, total, nome, caminho_pdf))
 
 # Uma subpasta e um Faturas.xlsx por grupo de emissão — a subpasta precisa existir antes do exportar_xlsx, que cria o arquivo
 for (ano, mes), lista_grupo in faturas.items():
@@ -612,7 +612,7 @@ for (ano, mes), lista_grupo in faturas.items():
     # o PDF original continua em Faturas/ pra rodar de novo manualmente
     subpastas_entradas = Path('Faturas') / f'{ano}-{mes:02d}'
     subpastas_entradas.mkdir(parents=True, exist_ok=True)
-    for df, feedback, nome, caminho_pdf in lista_grupo:
+    for df, feedback, total, nome, caminho_pdf in lista_grupo:
         shutil.move(caminho_pdf, subpastas_entradas / caminho_pdf.name)
 
 # Fecha o cronômetro e loga o tempo total — referência pra comparar quando for otimizando
