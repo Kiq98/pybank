@@ -9,7 +9,11 @@ from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
 from pathlib import Path
 import shutil
+import psycopg
+from dotenv import load_dotenv
 # ================================================
+
+load_dotenv() # Carrega dados do .env
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
 
@@ -438,7 +442,7 @@ def preparar_df(transacoes):
 
         df = pd.DataFrame(transacoes)
         # Coluna Titular
-        df.insert(1, 'Titular', None) # Preenchimento manual
+        df.insert(1, 'Titular', 'Kaique') # Preenchimento manual
         # Capitaliza a descrição (1ª letra maiúscula) — padroniza o visual de todos os bancos
         df['Descrição'] = df['Descrição'].str.capitalize()
         # Conversão da coluna 'valor' de str para float para permitir operações numéricas.
@@ -574,6 +578,9 @@ def manipular_xlsx(workbook):
     except Exception as e:
         logging.exception(f'Erro inesperado: {e}')
 
+def conectar_bd():
+    return psycopg.connect()
+
 # Linha de montagem de uma fatura: lê o PDF, monta a tabela e confere o total.
 # Entra: parser do banco, caminho do PDF, nome da aba. Sai: (df, feedback).
 def processar(parser, arquivo, nome):
@@ -583,6 +590,25 @@ def processar(parser, arquivo, nome):
     feedback = conferir(soma, total, nome)
 
     return df, feedback, total
+
+def inserir_fatura(nome, ano, mes, total, feedback):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM bancos WHERE nome = %s",
+            (nome,)
+        )
+
+        banco_id = cur.fetchone()[0]
+
+        cur.execute(
+            "INSERT INTO faturas (banco_id, ano, mes, total, feedback) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (banco_id, ano, mes, total, feedback)
+        )
+
+        fatura_id = cur.fetchone()[0]
+
+        return fatura_id
 
 # =================== CHAMADAS ====================
 
@@ -598,8 +624,22 @@ for caminho_pdf in pasta_faturas.glob('*.pdf'):
     df, feedback, total = processar(parser, caminho_pdf, nome)
     faturas.setdefault(data_emissao, []).append((df, feedback, total, nome, caminho_pdf))
 
+conn = conectar_bd()
+print('Conexão: Ok')
+
 # Uma subpasta e um Faturas.xlsx por grupo de emissão — a subpasta precisa existir antes do exportar_xlsx, que cria o arquivo
 for (ano, mes), lista_grupo in faturas.items():
+    for df, feedback, total, nome, caminho_pdf in lista_grupo:
+        try:
+            fatura_id = inserir_fatura(nome, ano, mes, total, feedback)
+            conn.commit()
+        except psycopg.errors.UniqueViolation:
+            conn.rollback()
+            logging.info(f'Fatura já existe: {nome} {ano}-{mes:02d} — pulando')
+        except Exception as e:
+            conn.rollback()
+            logging.info(f'Erro ao importar {nome} {ano}-{mes:02d}: {e}')
+
     subpastas_saidas = Path('Saidas') / f'{ano}-{mes:02d}'
     subpastas_saidas.mkdir(parents=True, exist_ok=True)
     caminho_saida = subpastas_saidas / 'Faturas.xlsx'
