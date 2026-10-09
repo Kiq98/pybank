@@ -442,7 +442,7 @@ def preparar_df(transacoes):
 
         df = pd.DataFrame(transacoes)
         # Coluna Titular
-        df.insert(1, 'Titular', 'Kaique') # Preenchimento manual
+        df.insert(1, 'Titular', None) # Preenchimento manual
         # Capitaliza a descrição (1ª letra maiúscula) — padroniza o visual de todos os bancos
         df['Descrição'] = df['Descrição'].str.capitalize()
         # Conversão da coluna 'valor' de str para float para permitir operações numéricas.
@@ -610,6 +610,16 @@ def inserir_fatura(nome, ano, mes, total, feedback):
 
         return fatura_id
 
+def inserir_transacoes(df, fatura_id):
+    titular = 'Kaique'
+    with conn.cursor() as cur:
+        for _, linha in df.iterrows():
+            cur.execute(
+                    "INSERT INTO transacoes (fatura_id, titular, data, descricao, valor, parcela) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (fatura_id, titular, linha['Data'], linha['Descrição'], linha['Valor'], linha['Parcela'])
+                )
+
 # =================== CHAMADAS ====================
 
 faturas = {} # Agrupa (df, feedback, nome, caminho_pdf) por (ano, mes) da emissão — uma lista de tuplas por grupo
@@ -632,6 +642,7 @@ for (ano, mes), lista_grupo in faturas.items():
     for df, feedback, total, nome, caminho_pdf in lista_grupo:
         try:
             fatura_id = inserir_fatura(nome, ano, mes, total, feedback)
+            inserir_transacoes(df, fatura_id)
             conn.commit()
         except psycopg.errors.UniqueViolation:
             conn.rollback()
