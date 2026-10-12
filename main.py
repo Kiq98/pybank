@@ -371,12 +371,43 @@ def banco_do_brasil(arquivo):
 
 # ======================================= HELPERS =======================================
 
-# Lê ano e mês da emissão da fatura no metadado do PDF (CreationDate); usa o relógio se não houver
-def data_emissao_pdf(arquivo_fatura): 
+# Lê ano e mês da emissão da fatura no metadado do PDF (CreationDate). Se não houver, tenta
+# extrair do próprio texto da fatura ("fatura de {mês}" + "Data de vencimento"); só usa o
+# relógio (datetime.now()) como último recurso, quando nem o metadado nem o texto resolvem.
+def data_emissao_pdf(arquivo_fatura):
     with pdfplumber.open(arquivo_fatura) as pdf:
         data_criacao_pdf = pdf.metadata.get('CreationDate')
         if data_criacao_pdf:
             return int(data_criacao_pdf[2:6]), int(data_criacao_pdf[6:8])
+
+        texto = texto_completo(arquivo_fatura)
+        # Regex para pegar o mês da fatura que o proprio pdf disponibiliza caso não exista CreationDate
+        mes_fatura = re.search(r'fatura de\s+(\w+)', texto)
+        if mes_fatura:
+            mes_fatura_abreviado = mes_fatura.group(1)[:3].upper() # Pegando o mes, abreviando fatiando-o e deixando padrão do dicionario de referencia
+            mes_fatura_num = meses[mes_fatura_abreviado] # ex.: 'AGO' vira '08' (string)
+            mes_fatura_num = int(mes_fatura_num) # converte pra int, mesmo padrão das outras saídas da função
+
+            # Captura dia, mês abreviado e ano da "Data de vencimento" — só existe se a fatura
+            # (mes_fatura) também existir, porque é o mes_fatura_num que entra na comparação abaixo
+            data_vencimento = re.search(r'Data de vencimento:\s+(\d{2})\s([A-Z]{3})\s(\d{4})', texto)
+            if data_vencimento:
+                mes_vencimento_fatura = data_vencimento.group(2)[:3].upper() # Pegando o mes, abreviando fatiando-o e deixando padrão do dicionario
+                mes_vencimento_fatura_num = meses[mes_vencimento_fatura] # ex.: 'JAN' vira '01' (string)
+                mes_vencimento_fatura_num = int(mes_vencimento_fatura_num) # converte pra int
+
+                ano_vencimento = int(data_vencimento.group(3)) # ano que vem junto do vencimento — pode não ser o ano real da fatura
+
+                # Mesma lógica da montar_data(): se o vencimento já "virou" pra um mês menor
+                # que o da fatura (ex.: fatura de dezembro, vencimento em janeiro), o ano do
+                # vencimento está um ano na frente do ano real da fatura
+                if mes_fatura_num < mes_vencimento_fatura_num:
+                    ano = ano_vencimento - 1
+                else:
+                    ano = ano_vencimento
+
+                return ano, mes_fatura_num # mantém a ordem (ano, mes) igual às outras saídas da função
+
         agora = datetime.now()
         return agora.year, agora.month
 
@@ -591,6 +622,8 @@ def processar(parser, arquivo, nome):
 
     return df, feedback, total
 
+# Insere a fatura em `faturas`, buscando o banco_id pelo nome; devolve o id gerado,
+# que as transações precisam pra saber a qual fatura pertencem
 def inserir_fatura(nome, ano, mes, total, feedback):
     with conn.cursor() as cur:
         cur.execute(
@@ -610,6 +643,8 @@ def inserir_fatura(nome, ano, mes, total, feedback):
 
         return fatura_id
 
+# Insere cada linha do DataFrame como uma transação ligada à fatura_id; titular é fixo
+# aqui dentro, independente da coluna Titular do DataFrame (essa é preenchimento manual)
 def inserir_transacoes(df, fatura_id):
     titular = 'Kaique'
     with conn.cursor() as cur:
@@ -634,16 +669,27 @@ for caminho_pdf in pasta_faturas.glob('*.pdf'):
     df, feedback, total = processar(parser, caminho_pdf, nome)
     faturas.setdefault(data_emissao, []).append((df, feedback, total, nome, caminho_pdf))
 
-conn = conectar_bd()
-print('Conexão: Ok')
+# Falha de conexão não para o script: conn vira None, e o resto do pipeline (Excel,
+# formatação, mover PDFs) continua rodando normal — só a parte do Postgres é pulada
+try:
+    logging.info('Tentando conexão...')
+    conn = conectar_bd()
+    logging.info('Conexão: Ok')
+except psycopg.OperationalError as e:
+    conn = None
+    logging.error(f'Falha na conexão com o banco: {e}')
+except Exception as e:
+    conn = None
+    logging.error(e)
 
 # Uma subpasta e um Faturas.xlsx por grupo de emissão — a subpasta precisa existir antes do exportar_xlsx, que cria o arquivo
 for (ano, mes), lista_grupo in faturas.items():
     for df, feedback, total, nome, caminho_pdf in lista_grupo:
         try:
-            fatura_id = inserir_fatura(nome, ano, mes, total, feedback)
-            inserir_transacoes(df, fatura_id)
-            conn.commit()
+            if conn: # pula o insert sem erro quando a conexão falhou (conn is None)
+                fatura_id = inserir_fatura(nome, ano, mes, total, feedback)
+                inserir_transacoes(df, fatura_id)
+                conn.commit()
         except psycopg.errors.UniqueViolation:
             conn.rollback()
             logging.info(f'Fatura já existe: {nome} {ano}-{mes:02d} — pulando')
