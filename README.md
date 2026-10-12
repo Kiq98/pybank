@@ -3,8 +3,8 @@
 Lê faturas de cartão de crédito em **PDF** de bancos brasileiros, extrai as
 transações e gera uma planilha **Excel formatada** por mês de emissão
 (`Saidas/{ano}-{mes}/Faturas.xlsx`), com uma aba por banco. Detecta o banco
-automaticamente, concilia o valor extraído contra o total real da fatura e
-registra tudo em log.
+automaticamente, concilia o valor extraído contra o total real da fatura,
+grava tudo num banco **Postgres** (opcional) e registra o processo em log.
 
 ---
 
@@ -15,9 +15,16 @@ registra tudo em log.
 - **Conciliação** — compara a soma extraída com o "total a pagar" real do PDF e
   escreve o resultado na planilha (`Tudo certo`, `Falta`, `Sobra` ou
   `Impossível conferir`).
-- **Datas corrigidas** — o ano vem da data de emissão do PDF (não do relógio),
-  com correção automática da virada de ano (compra de dezembro numa fatura de
+- **Datas corrigidas** — o ano e o mês de emissão vêm do metadado do PDF; se
+  faltar, o script lê a data direto do texto da fatura (mês escrito por extenso
+  + data de vencimento) antes de recorrer ao relógio como último caso. Também
+  corrige automaticamente a virada de ano (compra de dezembro numa fatura de
   janeiro sai com o ano certo).
+- **Persistência em Postgres (opcional)** — além do Excel, grava fatura e
+  transações num banco relacional (`bancos` → `faturas` → `transacoes`,
+  protegido contra reimportar a mesma fatura duas vezes). Se o Postgres não
+  estiver configurado ou disponível, o script não quebra — só pula essa parte
+  e segue gerando o Excel normalmente.
 - **Excel pronto pra ler** — fórmulas, formato monetário `R$`, datas
   `DD/MM/YYYY`, fontes e largura de coluna ajustada automaticamente.
 - **Tolerante a falhas** — um PDF que não é fatura é ignorado com aviso; uma
@@ -56,19 +63,23 @@ padronizadas, largura de coluna automática e a conferência na coluna lateral:
 Requer **Python 3.8+**. Instale as dependências:
 
 ```bash
-pip install pdfplumber pandas openpyxl
+pip install -r requirements.txt
 ```
 
 ## Como usar
 
 1. Coloque os PDFs das faturas na pasta `Faturas/`.
-2. Rode:
+2. (Opcional, só se for usar o Postgres) Crie um `.env` na raiz com as
+   credenciais do banco (`PGHOST`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`) e o
+   nome do titular (`TITULAR=Seu Nome`), e aplique `sql/schema.sql` num
+   Postgres já criado. Sem isso, o script roda igual — só não grava no banco.
+3. Rode:
 
    ```bash
    python main.py
    ```
 
-3. A planilha sai em `Saidas/{ano}-{mes}/Faturas.xlsx` (uma aba por banco, um
+4. A planilha sai em `Saidas/{ano}-{mes}/Faturas.xlsx` (uma aba por banco, um
    arquivo por mês de emissão presente no lote) e o histórico em
    `Logs/Faturas.log`. Os PDFs processados são movidos de `Faturas/` para
    `Faturas/{ano}-{mes}/`.
@@ -81,6 +92,10 @@ automaticamente se não existirem.
 ```
 PyBank/
 ├── main.py                # todo o pipeline
+├── requirements.txt       # dependências
+├── sql/
+│   └── schema.sql         # bancos → faturas → transacoes
+├── .env                   # credenciais do Postgres + TITULAR (não versionado)
 ├── Faturas/               # entrada: PDFs das faturas (você coloca aqui)
 │   └── {ano}-{mes}/       # PDFs já processados, organizados por emissão (gerado)
 ├── Faturas_teste/         # faturas fictícias de exemplo (uma por banco)
@@ -128,6 +143,10 @@ conferir          →  soma extraída × total real  →  aviso na célula K1 da
      ▼
 agrupamento       →  (df, feedback, banco, caminho_pdf) entra no grupo do
                       (ano, mês) de emissão daquele PDF
+     │
+     ▼
+Postgres (opcional) →  insere fatura + transações, se a conexão estiver
+                        disponível; se não, só pula essa parte
 
 ── uma vez por grupo (ano, mês) ──
 
@@ -167,6 +186,11 @@ organização       →  move os PDFs do grupo para Faturas/{ano}-{mes}/
   pra você conferir, não é necessariamente um erro.
 - **Faturas contêm dados pessoais** (CPF, transações). Não versione a pasta
   `Faturas/` nem a saída ao subir para um repositório público.
+- **`.env` nunca é versionado** (está no `.gitignore`) — guarda credenciais do
+  Postgres e o nome do titular; sem ele, o script roda normalmente, só sem
+  gravar no banco.
+- **Titular no Excel fica em branco de propósito** (preenchimento manual); no
+  Postgres, é um valor fixo lido do `.env` — as duas coisas são independentes.
 - **PDFs com nome repetido se sobrescrevem.** Ao mover os arquivos de entrada
   processados para `Faturas/{ano}-{mes}/`, um PDF com o mesmo nome já existente
   nessa subpasta é substituído sem aviso.
