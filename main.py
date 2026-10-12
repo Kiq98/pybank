@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
 from pathlib import Path
+import os
 import shutil
 import psycopg
 from dotenv import load_dotenv
@@ -646,7 +647,7 @@ def inserir_fatura(nome, ano, mes, total, feedback):
 # Insere cada linha do DataFrame como uma transação ligada à fatura_id; titular é fixo
 # aqui dentro, independente da coluna Titular do DataFrame (essa é preenchimento manual)
 def inserir_transacoes(df, fatura_id):
-    titular = 'Kaique'
+    titular = os.getenv('TITULAR')
     with conn.cursor() as cur:
         for _, linha in df.iterrows():
             cur.execute(
