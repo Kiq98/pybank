@@ -237,8 +237,8 @@ def sicredi(arquivo):
         try:
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages:
-                    tabela = pagina.extract_table() # Sicredi prioriza o uso de tabelas
-                    if tabela:
+                    tabelas = pagina.extract_tables() # Sicredi prioriza o uso de tabelas
+                    for tabela in tabelas:
                         for linha in tabela:
                             if linha[0] and re.search(r'\d{2}/[a-z]{3}\s\d{2}:\d{2}', linha[0]) and '-R$' not in linha[0]:
                                 transacoes.append(linha)
