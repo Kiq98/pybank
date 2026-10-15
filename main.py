@@ -155,10 +155,15 @@ def nubank(arquivo):
                                 'Parcela': '1/1',
                                 'Valor': f'R$ {iof_internacional}'})
 
-    total_fatura = extrair_valores(texto, 'Total a pagar R$', inicio=True)
+    # Total lido da pág. 0 ("fatura de {mês}, no valor de\nR$ X"), que não muda de layout.
+    # "Total a pagar R$" não serve: a simulação de parcelamento repete esse texto em posição
+    # imprevisível. O valor fica na linha de baixo, por isso re.search com \s+ e não extrair_valores()
+    match = re.search(r'no valor de\s+R\$\s*([\d.]+,\d{2})', texto)
+    if match:
+        total_fatura = para_float(match.group(1))
+    else:
+        total_fatura = None # conferir() reporta "Impossível conferir"
 
-    if total_fatura is not None:
-        total_fatura = para_float(total_fatura)
     return dados_extraidos, total_fatura
 
 # Inter
