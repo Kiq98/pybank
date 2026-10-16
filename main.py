@@ -3,7 +3,8 @@ import pdfplumber
 import re
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Font, Alignment # fonte e alinhamento
+from openpyxl.styles import Font, Alignment, PatternFill # fonte, alinhamento e cor de fundo
+from openpyxl.worksheet.datavalidation import DataValidation
 import logging
 from datetime import datetime
 from time import perf_counter # cronômetro de alta precisão pra medir duração
@@ -531,6 +532,20 @@ def manipular_xlsx(workbook):
                 for row in range(2, ws.max_row + 1):
                     ws[f'G{row}'] = f'=E{row}-F{row}'
 
+        # Soma em L3 o valor gasto pelo titular digitado à mão em K3 (caixa de ajuda ao clicar na célula).
+        # Fórmula em inglês e com vírgula: o .xlsx guarda assim, e o Excel traduz pra SOMASE ao abrir
+        def somase():
+            for sheet in wb.sheetnames:
+                ws = wb[sheet]
+                dv = DataValidation(
+                    showInputMessage=True,
+                    promptTitle='Titular',
+                    prompt='Digite o nome do titular'
+                )
+                ws.add_data_validation(dv)
+                dv.add('K3')
+                ws['L3'] = '=SUMIF(B:B,K3,E:E)'    
+
         # Formatar cabeçalho
         def formatar_cabecalho():
             for sheet in wb.sheetnames:
@@ -557,7 +572,13 @@ def manipular_xlsx(workbook):
                     for cell in row:
                         cell.alignment = Alignment(horizontal='center',
                                                    vertical='center')
-                 
+
+        # Destaca em amarelo a célula K3, onde o titular é preenchido à mão
+        def colorir_fundo_celula():
+            for sheet in wb.sheetnames:
+                ws = wb[sheet]
+                ws['K3'].fill = PatternFill(fill_type='solid', start_color='CFC2A6')
+
         # Formatando campos de valores e passando para forma monetária R$
         def campos_monetarios():
             for sheet in wb.sheetnames:
@@ -565,6 +586,7 @@ def manipular_xlsx(workbook):
                 for column in ws.iter_cols(min_col=5, max_col=8):
                     for cell in column:
                         cell.number_format = 'R$ #,##0.00'
+                ws['L3'].number_format = 'R$ #,##0.00'
 
         # Formatando campos de datas e passando para formato visual no Brasil - DD/MM/YYYY -> dia/mês/ano
         def campos_data():
@@ -597,8 +619,10 @@ def manipular_xlsx(workbook):
 
         # Chamadas Internas
         adicionar_calculo()
+        somase()
         formatar_cabecalho()
         fonte()
+        colorir_fundo_celula()
         campos_monetarios()
         campos_data()
         auto_fit()

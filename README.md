@@ -27,6 +27,10 @@ grava tudo num banco **Postgres** (opcional) e registra o processo em log.
   e segue gerando o Excel normalmente.
 - **Excel pronto pra ler** — fórmulas, formato monetário `R$`, datas
   `DD/MM/YYYY`, fontes e largura de coluna ajustada automaticamente.
+- **Soma por titular** — cada aba tem uma célula destacada (`K3`) onde você
+  digita o nome de um titular; ao lado (`L3`), uma fórmula `SOMASE` mostra
+  quanto aquele titular gastou na fatura. Ao clicar na célula, uma mensagem
+  de ajuda explica o que preencher.
 - **Tolerante a falhas** — um PDF que não é fatura é ignorado com aviso; uma
   fatura sem total é processada mesmo assim e sinalizada. Nada interrompe o lote.
 - **Organização automática por mês** — PDFs de meses de emissão diferentes num
@@ -154,7 +158,8 @@ exportar_xlsx     →  grava cada banco do grupo numa aba de
                       Saidas/{ano}-{mes}/Faturas.xlsx
      │
      ▼
-manipular_xlsx    →  fórmulas, fontes, formato R$/data, autofit das colunas
+manipular_xlsx    →  fórmulas (incluindo a soma por titular), fontes,
+                      formato R$/data, autofit das colunas
      │
      ▼
 organização       →  move os PDFs do grupo para Faturas/{ano}-{mes}/
@@ -172,6 +177,14 @@ organização       →  move os PDFs do grupo para Faturas/{ano}-{mes}/
 | Valor pago | preenchimento manual |
 | Valor restante | fórmula: `Valor − Valor pago` |
 
+Fora da tabela, em cada aba:
+
+| Célula | Conteúdo |
+|---|---|
+| K1 | resultado da conciliação (`Tudo certo`, `Falta`, `Sobra`…) |
+| K3 | titular a consultar — preenchimento manual, com fundo destacado |
+| L3 | fórmula: soma do `Valor` das linhas cujo `Titular` é igual a K3 |
+
 ---
 
 ## Observações e limitações
@@ -180,7 +193,9 @@ organização       →  move os PDFs do grupo para Faturas/{ano}-{mes}/
   específicos do layout de cada um — mexer no parser de um banco não afeta os
   outros.
 - **A planilha é um ponto de partida.** As colunas *Titular* e *Valor pago* vêm
-  vazias, pra você preencher à mão; *Valor restante* se calcula sozinha.
+  vazias, pra você preencher à mão; *Valor restante* se calcula sozinha. A
+  soma por titular (L3) só faz sentido depois que a coluna *Titular* estiver
+  preenchida — até lá, mostra `R$ 0,00`.
 - **A conciliação reporta, não decide.** Uma diferença entre o extraído e o
   total pode ser esperada (créditos, estornos, saldo anterior). O aviso serve
   pra você conferir, não é necessariamente um erro.
