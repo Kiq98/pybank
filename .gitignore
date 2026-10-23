@@ -3,6 +3,7 @@ Faturas_teste/
 Saidas/
 Logs/
 
+__pycache__/
 venv/
 .env
 PLATAO.md

@@ -17,15 +17,20 @@ from dotenv import load_dotenv
 
 load_dotenv() # Carrega dados do .env
 
+# Modo ensaio: quando True, roda o pipeline inteiro e gera o Excel normalmente, mas lê também as subpastas
+# de Faturas/, não move os PDFs e desfaz os inserts no Postgres (rollback no lugar do commit) — dá pra rodar
+# de novo sem arrumar nada
+MODO_TESTE = False
+
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
 
-caminho_logs = Path('Logs') / 'Faturas.log' # Definindo o caminho certo para onde o log será guardado
+CAMINHO_LOGS = Path('Logs') / 'Faturas.log' # Definindo o caminho certo para onde o log será guardado
 
 # Configuração básica do logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[
-                        logging.FileHandler(caminho_logs, encoding='utf-8'), # Salvando histórico em arquivo de log
+                        logging.FileHandler(CAMINHO_LOGS, encoding='utf-8'), # Salvando histórico em arquivo de log
                         logging.StreamHandler() # Exibindo Histórico ao vivo no terminal.
                     ])
 
@@ -34,18 +39,21 @@ logging.info('=' * 50)
 logging.info(f'EXECUÇÃO: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}') # strftime -> datetime vira str
 logging.info('=' * 50)
 
+# Marca no log que a rodada é ensaio — sem isso, quem ler depois pode achar que as faturas foram gravadas
+if MODO_TESTE:
+    logging.info('MODO ENSAIO ATIVO: lê Faturas/ e subpastas, gera o Excel, mas desfaz os inserts e não move PDFs')
+
 # Marca o início da execução, pra cronometrar o run inteiro
 inicio = perf_counter()
 
 # Dicionário de referência para padronização de datas
-meses = {
+MESES = {
     'JAN': '01', 'FEV': '02', 'MAR': '03', 'ABR': '04',
     'MAI': '05', 'JUN': '06', 'JUL': '07', 'AGO': '08',
     'SET': '09', 'OUT': '10', 'NOV': '11', 'DEZ': '12'
 }
 
-
-pasta_faturas = Path('Faturas') # pasta onde se encontrará todos os arquivos de faturas a serem lidos
+PASTA_FATURAS = Path('Faturas') # pasta onde se encontrará todos os arquivos de faturas a serem lidos
 
 Path('Saidas').mkdir(exist_ok=True) # pasta de outputs (xlsx) para o usuário 
 
@@ -102,7 +110,7 @@ def nubank(arquivo):
 
                 # Separando
                 dia, mes_abreviado = data_compra.split()
-                mes_num = meses[mes_abreviado]
+                mes_num = MESES[mes_abreviado]
 
                 # Padronizando a data
                 data_padronizada = montar_data(dia, mes_num, ano_emissao, mes_emissao)
@@ -203,7 +211,7 @@ def inter(arquivo):
                 ano = match.group(3)
 
                 # Convertendo mês para upper - padrão do dicionário
-                mes_num = meses[mes_abrevidado.upper()]
+                mes_num = MESES[mes_abrevidado.upper()]
 
                 # Padronizando a data
                 data_padronizada = datetime.strptime(f'{dia}/{mes_num}/{ano}', '%d/%m/%Y').date()
@@ -268,7 +276,7 @@ def sicredi(arquivo):
                 mes_abreviado = match.group(2)
 
                 # Convertendo mês para upper - padrão do dicionário
-                mes_num = meses[mes_abreviado.upper()]
+                mes_num = MESES[mes_abreviado.upper()]
 
                 # Padronizando a data
                 data_padronizada = montar_data(dia, mes_num, ano_emissao, mes_emissao)
@@ -392,7 +400,7 @@ def data_emissao_pdf(arquivo_fatura):
         mes_fatura = re.search(r'fatura de\s+(\w+)', texto)
         if mes_fatura:
             mes_fatura_abreviado = mes_fatura.group(1)[:3].upper() # Pegando o mes, abreviando fatiando-o e deixando padrão do dicionario de referencia
-            mes_fatura_num = meses[mes_fatura_abreviado] # ex.: 'AGO' vira '08' (string)
+            mes_fatura_num = MESES[mes_fatura_abreviado] # ex.: 'AGO' vira '08' (string)
             mes_fatura_num = int(mes_fatura_num) # converte pra int, mesmo padrão das outras saídas da função
 
             # Captura dia, mês abreviado e ano da "Data de vencimento" — só existe se a fatura
@@ -400,7 +408,7 @@ def data_emissao_pdf(arquivo_fatura):
             data_vencimento = re.search(r'Data de vencimento:\s+(\d{2})\s([A-Z]{3})\s(\d{4})', texto)
             if data_vencimento:
                 mes_vencimento_fatura = data_vencimento.group(2)[:3].upper() # Pegando o mes, abreviando fatiando-o e deixando padrão do dicionario
-                mes_vencimento_fatura_num = meses[mes_vencimento_fatura] # ex.: 'JAN' vira '01' (string)
+                mes_vencimento_fatura_num = MESES[mes_vencimento_fatura] # ex.: 'JAN' vira '01' (string)
                 mes_vencimento_fatura_num = int(mes_vencimento_fatura_num) # converte pra int
 
                 ano_vencimento = int(data_vencimento.group(3)) # ano que vem junto do vencimento — pode não ser o ano real da fatura
@@ -689,8 +697,12 @@ def inserir_transacoes(df, fatura_id):
 
 faturas = {} # Agrupa (df, feedback, nome, caminho_pdf) por (ano, mes) da emissão — uma lista de tuplas por grupo
 
+# No ensaio lê a raiz e as subpastas (rglob) — os PDFs já organizados também entram, sem sair do lugar.
+# Pra valer, só a raiz (glob): o que está nas subpastas já foi processado
+pdfs = PASTA_FATURAS.rglob('*.pdf') if MODO_TESTE else PASTA_FATURAS.glob('*.pdf')
+
 # Identifica o banco de cada PDF, processa a fatura e agrupa o resultado pela emissão dele
-for caminho_pdf in pasta_faturas.glob('*.pdf'):
+for caminho_pdf in pdfs:
     parser, nome = identificador(caminho_pdf)
     if parser is None:
         logging.warning(f'Banco não reconhecido: {caminho_pdf.name}')
@@ -719,7 +731,12 @@ for (ano, mes), lista_grupo in faturas.items():
             if conn: # pula o insert sem erro quando a conexão falhou (conn is None)
                 fatura_id = inserir_fatura(nome, ano, mes, total, feedback)
                 inserir_transacoes(df, fatura_id)
-                conn.commit()
+                # No ensaio o insert roda mesmo assim, de propósito: o Postgres valida tudo (NOT NULL,
+                # tipos, banco existente) e o erro aparece no log; o rollback desfaz e o banco fica intacto
+                if MODO_TESTE:
+                    conn.rollback()
+                else:
+                    conn.commit()
         except psycopg.errors.UniqueViolation:
             conn.rollback()
             logging.info(f'Fatura já existe: {nome} {ano}-{mes:02d} — pulando')
@@ -736,11 +753,13 @@ for (ano, mes), lista_grupo in faturas.items():
     manipular_xlsx(caminho_saida)
 
     # Move os PDFs de entrada só depois de exportar e formatar: se algo falhar antes,
-    # o PDF original continua em Faturas/ pra rodar de novo manualmente
-    subpastas_entradas = Path('Faturas') / f'{ano}-{mes:02d}'
-    subpastas_entradas.mkdir(parents=True, exist_ok=True)
-    for df, feedback, total, nome, caminho_pdf in lista_grupo:
-        shutil.move(caminho_pdf, subpastas_entradas / caminho_pdf.name)
+    # o PDF original continua em Faturas/ pra rodar de novo manualmente.
+    # No ensaio, nada em Faturas/ é criado nem movido — os PDFs ficam onde estão pra próxima rodada
+    if not MODO_TESTE:
+        subpastas_entradas = Path('Faturas') / f'{ano}-{mes:02d}'
+        subpastas_entradas.mkdir(parents=True, exist_ok=True)
+        for df, feedback, total, nome, caminho_pdf in lista_grupo:
+            shutil.move(caminho_pdf, subpastas_entradas / caminho_pdf.name)
 
 # Fecha o cronômetro e loga o tempo total — referência pra comparar quando for otimizando
 fim = perf_counter()

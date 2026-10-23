@@ -118,7 +118,7 @@ A pasta `Faturas_teste/` traz **4 faturas fictícias** (uma por banco), com
 lojas, valores e datas totalmente inventados — nenhum dado real. Servem pra
 testar ou demonstrar o projeto sem precisar de uma fatura de verdade.
 
-Pra rodar nelas, aponte a variável `pasta_faturas` (no `main.py`) para
+Pra rodar nelas, aponte a variável `PASTA_FATURAS` (no `main.py`) para
 `Faturas_teste/`, ou copie os PDFs para `Faturas/`. As quatro conciliam
 certinho (`Tudo certo` no log), incluindo os encargos do Nubank e do Sicredi.
 
