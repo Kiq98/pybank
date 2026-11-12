@@ -20,7 +20,7 @@ load_dotenv() # Carrega dados do .env
 # Modo ensaio: quando True, roda o pipeline inteiro e gera o Excel normalmente, mas lê também as subpastas
 # de Faturas/, não move os PDFs e desfaz os inserts no Postgres (rollback no lugar do commit) — dá pra rodar
 # de novo sem arrumar nada
-MODO_TESTE = False
+MODO_TESTE = True
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
 
@@ -252,10 +252,22 @@ def sicredi(arquivo):
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages:
                     tabelas = pagina.extract_tables() # Sicredi prioriza o uso de tabelas
-                    for tabela in tabelas:
-                        for linha in tabela:
-                            if linha[0] and re.search(r'\d{2}/[a-z]{3}\s\d{2}:\d{2}', linha[0]) and '-R$' not in linha[0]:
-                                transacoes.append(linha)
+                    # O pdfplumber só reconhece tabela pelos traços desenhados que fecham células. Página
+                    # em que a tabela de um cartão transborda com poucas linhas pode vir sem tabela nenhuma
+                    # (ex. 2026-11: uma transação sozinha na pág. 4) — nesse caso lê pelo texto, que não perde nada
+                    if tabelas:
+                        for tabela in tabelas:
+                            for linha in tabela:
+                                if linha[0] and re.search(r'\d{2}/[a-z]{3}\s\d{2}:\d{2}', linha[0]) and '-R$' not in linha[0]:
+                                    transacoes.append(linha)
+                    else:
+                        texto = pagina.extract_text()
+                        for linha in texto.splitlines(): # quebra o texto da página em linhas
+                            # Mesmo filtro do caminho da tabela, mas testando a linha inteira (aqui não há células)
+                            if re.search(r'\d{2}/[a-z]{3}\s\d{2}:\d{2}', linha) and '-R$' not in linha:
+                                # Embrulha em lista pra ficar no mesmo formato da linha de tabela:
+                                # a extrair_dados() lê compras[0] e assim recebe o texto inteiro, não o 1º caractere
+                                transacoes.append([linha])
             logging.info('Leitura concluída.')
         except FileNotFoundError as e:
             logging.error(f'Arquivo não encontrado: {e}')
@@ -698,8 +710,10 @@ def inserir_transacoes(df, fatura_id):
 faturas = {} # Agrupa (df, feedback, nome, caminho_pdf) por (ano, mes) da emissão — uma lista de tuplas por grupo
 
 # No ensaio lê a raiz e as subpastas (rglob) — os PDFs já organizados também entram, sem sair do lugar.
-# Pra valer, só a raiz (glob): o que está nas subpastas já foi processado
-pdfs = PASTA_FATURAS.rglob('*.pdf') if MODO_TESTE else PASTA_FATURAS.glob('*.pdf')
+# Pra valer, só a raiz (glob): o que está nas subpastas já foi processado.
+# sorted() fixa a ordem pelo caminho (o glob segue a ordem do sistema de arquivos) e varre a pasta
+# inteira antes do for começar
+pdfs = sorted(PASTA_FATURAS.rglob('*.pdf') if MODO_TESTE else PASTA_FATURAS.glob('*.pdf'))
 
 # Identifica o banco de cada PDF, processa a fatura e agrupa o resultado pela emissão dele
 for caminho_pdf in pdfs:
