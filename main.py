@@ -20,7 +20,7 @@ load_dotenv() # Carrega dados do .env
 # Modo ensaio: quando True, roda o pipeline inteiro e gera o Excel normalmente, mas lê também as subpastas
 # de Faturas/, não move os PDFs e desfaz os inserts no Postgres (rollback no lugar do commit) — dá pra rodar
 # de novo sem arrumar nada
-MODO_TESTE = True
+MODO_TESTE = False
 
 Path('Logs').mkdir(exist_ok=True) # pasta onde se encontrará o log
 
@@ -78,7 +78,6 @@ def nubank(arquivo):
     # Leitura da fatura em PDF
     def ler_nubank():
         transacoes = []
-        logging.info('Iniciando Leitura: Fatura Nubank.')
         lixo = ('IOF', 'Juros', 'rotativo', 'Total de compras')  # encargos e a linha de total
         try:
             with pdfplumber.open(arquivo) as pdf:
@@ -91,7 +90,6 @@ def nubank(arquivo):
                         eh_lixo = any(l in linha for l in lixo) # encargo ou total
                         if tem_data and tem_valor and not eh_negativo and not eh_lixo:
                             transacoes.append(linha)
-            logging.info('Leitura concluída')
         except FileNotFoundError as e:
             logging.error(f'Arquivo não encontrado: {e}')
         except Exception as e:
@@ -101,7 +99,6 @@ def nubank(arquivo):
     # Extração das transações usando Regex; passando para Dict e construindo lista de Dict
     def extrair_dados(leitura):
         dados_transacoes = []
-        logging.info('Iniciando extração de dados: Fatura Nubank.')
         try:
             ano_emissao, mes_emissao = data_emissao_pdf(arquivo) # Ano e mês da emissão, lidos do metadado do PDF (uma vez, fora do loop)
             for compras in leitura:
@@ -126,7 +123,6 @@ def nubank(arquivo):
                                 'Parcela': parcela,
                                 'Valor': valor_compras}
                 dados_transacoes.append(dict_compras) # Lista de Dict de compras
-            logging.info('Extração de dados concluída.')
         except IndexError as e:
             logging.error(f'Padrão não encontrado: {e}')
         except Exception as e:
@@ -135,6 +131,10 @@ def nubank(arquivo):
 
     resultado_leitura = ler_nubank()
     dados_extraidos = extrair_dados(resultado_leitura)
+    # Os dois números devem bater: extração menor que a leitura = alguma linha quebrou na extrair_dados()
+    # (o try envolve o loop inteiro, então um erro corta as linhas seguintes). Fica antes de qualquer
+    # append de encargos, pra comparar só leitura × extração
+    logging.info(f'Leitura: {len(resultado_leitura)} linhas | Extração: {len(dados_extraidos)} transações')
 
     texto = texto_completo(arquivo_fatura=arquivo)
     
@@ -180,7 +180,6 @@ def inter(arquivo):
     # Leitura do arquivo PDF
     def ler_inter():
         transacoes = []
-        logging.info('Iniciando Leitura: Fatura Inter.')
         try:
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages:
@@ -188,7 +187,6 @@ def inter(arquivo):
                     for linha in texto:
                         if re.search(r'\d{2}\sde\s[a-z]+\.\s\d{4}', linha) and '+' not in linha:
                             transacoes.append(linha)
-            logging.info('Leitura concluída.')
         except FileNotFoundError as e:
             logging.error(f'Arquivo não encontrado: {e}')
         except Exception as e:
@@ -198,7 +196,6 @@ def inter(arquivo):
     # Extração das transações usando Regex; passando para Dict e construindo lista de Dict
     def extrair_dados(leitura):
         dados_transacoes = []
-        logging.info('Iniciando extração de dados: Fatura Inter.')
         try:
             for compras in leitura:
                 # Formato de data original extraída do arquivo
@@ -226,7 +223,6 @@ def inter(arquivo):
                                 'Parcela': parcela.replace('de', '/').replace(' ', ''),
                                 'Valor': valor_compras}
                 dados_transacoes.append(dict_compras) # Lista de Dict de compras
-            logging.info('Extração de dados concluída: Fatura Inter.')
         except IndexError as e:
             logging.error(f'Padrão não encontrado: {e}')
         except Exception as e:
@@ -235,6 +231,10 @@ def inter(arquivo):
 
     resultado_leitura = ler_inter()
     dados_extraidos = extrair_dados(resultado_leitura)
+    # Os dois números devem bater: extração menor que a leitura = alguma linha quebrou na extrair_dados()
+    # (o try envolve o loop inteiro, então um erro corta as linhas seguintes). Fica antes de qualquer
+    # append de encargos, pra comparar só leitura × extração
+    logging.info(f'Leitura: {len(resultado_leitura)} linhas | Extração: {len(dados_extraidos)} transações')
 
     texto = texto_completo(arquivo_fatura=arquivo)
     total_fatura = extrair_valores(texto, 'VALOR DO DOCUMENTO')
@@ -247,7 +247,6 @@ def sicredi(arquivo):
     # Leitura da fatura em PDF
     def ler_sicredi():
         transacoes = []
-        logging.info('Iniciando leitura: Fatura Sicredi.')
         try:
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages:
@@ -268,7 +267,6 @@ def sicredi(arquivo):
                                 # Embrulha em lista pra ficar no mesmo formato da linha de tabela:
                                 # a extrair_dados() lê compras[0] e assim recebe o texto inteiro, não o 1º caractere
                                 transacoes.append([linha])
-            logging.info('Leitura concluída.')
         except FileNotFoundError as e:
             logging.error(f'Arquivo não encontrado: {e}')
         except Exception as e:
@@ -278,7 +276,6 @@ def sicredi(arquivo):
     # Extração das transações usando Regex; passando para Dict e construindo lista de Dict
     def extrair_dados(leitura):
         dados_transacoes = []
-        logging.info('Iniciando extração de dados: Fatura Sicredi.')
         try:
             ano_emissao, mes_emissao = data_emissao_pdf(arquivo) # Ano e mês da emissão, lidos do metadado do PDF (uma vez, fora do loop)
             for compras in leitura:
@@ -315,7 +312,6 @@ def sicredi(arquivo):
                                 'Parcela': parcela,
                                 'Valor': valor}
                 dados_transacoes.append(dict_compras)
-            logging.info('Extração de dados concluida: Fatura Sicredi.')
         except IndexError as e:
             logging.error(f'Padrão não encontrado: {e}')
         except Exception as e:
@@ -324,6 +320,10 @@ def sicredi(arquivo):
 
     resultado_leitura = ler_sicredi()
     dados_extraidos = extrair_dados(resultado_leitura)
+    # Os dois números devem bater: extração menor que a leitura = alguma linha quebrou na extrair_dados()
+    # (o try envolve o loop inteiro, então um erro corta as linhas seguintes). Fica antes de qualquer
+    # append de encargos, pra comparar só leitura × extração
+    logging.info(f'Leitura: {len(resultado_leitura)} linhas | Extração: {len(dados_extraidos)} transações')
 
     texto = texto_completo(arquivo_fatura=arquivo)
     encargo = extrair_valores(texto, 'Subtotal Encargos')
@@ -344,7 +344,6 @@ def banco_do_brasil(arquivo):
     # Leitura da fatura em PDF
     def ler_bb():
         transacoes = []
-        logging.info('Iniciando leitura: Fatura Banco do Brasil.')
         try:
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages[1:]: # pula a página 0: ela tem uma linha em formato de data que o regex capturaria como transação falsa
@@ -352,7 +351,6 @@ def banco_do_brasil(arquivo):
                     for linha in texto:
                         if re.search(r'^\d{2}/\d{2}', linha) and not re.search(r'R\$\s*-[\d,.]+', linha):
                             transacoes.append(linha)
-            logging.info('Leitura concluída.')
         except FileNotFoundError as e:
             logging.error(f'Arquivo não encontrado: {e}')
         except Exception as e:
@@ -362,7 +360,6 @@ def banco_do_brasil(arquivo):
     # Extração das transações usando Regex; passando para Dict e construindo lista de Dict
     def extrair_dados(leitura):
         dados_transacoes = []
-        logging.info('Iniciando extração de dados: Fatura Banco do Brasil.')
         try:
             ano_emissao, mes_emissao = data_emissao_pdf(arquivo) # Ano e mês da emissão, lidos do metadado do PDF (uma vez, fora do loop)
             for compras in leitura:
@@ -380,7 +377,6 @@ def banco_do_brasil(arquivo):
                                 'Parcela': parcela,
                                 'Valor': valor}
                 dados_transacoes.append(dict_compras)
-            logging.info('Extração de dados concluída: Fatura Banco do Brasil.')
         except IndexError as e:
             logging.error(f'Padrão não encontrado: {e}')
         except Exception as e:
@@ -389,6 +385,10 @@ def banco_do_brasil(arquivo):
 
     resultado_leitura = ler_bb()
     dados_extraidos = extrair_dados(resultado_leitura)
+    # Os dois números devem bater: extração menor que a leitura = alguma linha quebrou na extrair_dados()
+    # (o try envolve o loop inteiro, então um erro corta as linhas seguintes). Fica antes de qualquer
+    # append de encargos, pra comparar só leitura × extração
+    logging.info(f'Leitura: {len(resultado_leitura)} linhas | Extração: {len(dados_extraidos)} transações')
 
     texto = texto_completo(arquivo_fatura=arquivo)
     total_fatura = extrair_valores(texto, 'Total da Fatura')
@@ -722,6 +722,9 @@ for caminho_pdf in pdfs:
         logging.warning(f'Banco não reconhecido: {caminho_pdf.name}')
         continue
     data_emissao = data_emissao_pdf(caminho_pdf)
+    # Cabeçalho de cada fatura no log: arquivo, banco e emissão — único ponto por onde passam todos os
+    # PDFs, então vale pros 4 bancos sem repetir nada nos parsers. data_emissao é a tupla (ano, mes)
+    logging.info(f'Processando: {caminho_pdf.name} ({nome}, emissão {data_emissao[0]}-{data_emissao[1]:02d})')
     df, feedback, total = processar(parser, caminho_pdf, nome)
     faturas.setdefault(data_emissao, []).append((df, feedback, total, nome, caminho_pdf))
 
