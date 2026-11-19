@@ -78,7 +78,7 @@ def nubank(arquivo):
     # Leitura da fatura em PDF
     def ler_nubank():
         transacoes = []
-        lixo = ('IOF', 'Juros', 'rotativo', 'Total de compras')  # encargos e a linha de total
+        lixo = ('IOF', 'Juros', 'rotativo', 'Total de compras', 'Multa de atraso', 'Saldo em atraso')  # encargos, saldo em atraso (anulado pelo crédito de atraso) e a linha de total
         try:
             with pdfplumber.open(arquivo) as pdf:
                 for pagina in pdf.pages:
@@ -142,6 +142,8 @@ def nubank(arquivo):
     juros = extrair_valores(texto, 'Juros de financiamento')
     iof_financiamento = extrair_valores(texto, 'IOF de financiamento')
     iof_internacional = extrair_valores(texto, 'IOF de compras internacionais')
+    multa_atraso = extrair_valores(texto, 'Multa de atraso')
+    iof_atraso = extrair_valores(texto, 'IOF de atraso')
 
     if saldo_f:
         dados_extraidos.append({'Data': None,
@@ -164,6 +166,17 @@ def nubank(arquivo):
                                 'Parcela': '1/1',
                                 'Valor': f'R$ {iof_internacional}'})
 
+    if multa_atraso:
+        dados_extraidos.append({'Data': None,
+                                'Descrição': 'Multa de atraso',
+                                'Parcela': '1/1',
+                                'Valor': f'R$ {multa_atraso}'})
+
+    if iof_atraso:
+        dados_extraidos.append({'Data': None,
+                                'Descrição': 'IOF de atraso',
+                                'Parcela': '1/1',
+                                'Valor': f'R$ {iof_atraso}'})
     # Total lido da pág. 0 ("fatura de {mês}, no valor de\nR$ X"), que não muda de layout.
     # "Total a pagar R$" não serve: a simulação de parcelamento repete esse texto em posição
     # imprevisível. O valor fica na linha de baixo, por isso re.search com \s+ e não extrair_valores()
